@@ -34,7 +34,7 @@ Throughout the courses, we will be utilizing the following industry-standard tec
 *   **Programming & Scripting Languages:** Python (Data Science & Scripting), JavaScript (Full-stack Development), SQL (Relational Queries).
 *   **IDE & Development Environments::** VS Code
 *   **DevOps & Infrastructure:** Git & GitHub (Version Control & CI/CD), Docker (Containerization & Microservices).
-*   **Database Management:** MySQL (Relational Database Design & Administration).
+*   **Database Management:** MySQL (Relational Database Design & Administration), Postgres.
 
 ---
 
