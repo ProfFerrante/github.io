@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Calendario semplice + Invia a Google Calendar</title>
+<title>Calendario semplice + Google Calendar</title>
 <style>
   :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
   body{margin:0;padding:20px;background:#f4f6f8;color:#111}
@@ -13,8 +13,10 @@
   .day{background:#fff;border-radius:6px;padding:8px;min-height:90px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
   .day header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:.9rem}
   .day button{font-size:.75rem;padding:4px 6px;border-radius:4px;border:1px solid #ddd;background:#f8fafb;cursor:pointer}
-  .events{font-size:.85rem;display:flex;flex-direction:column;gap:4px}
-  .event{background:#eaf4ff;border-left:4px solid #2b7cff;padding:6px;border-radius:4px}
+  .events{font-size:.85rem;display:flex;flex-direction:column;gap:6px}
+  .event{background:#eaf4ff;border-left:4px solid #2b7cff;padding:6px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .ev-info{flex:1}
+  .ev-actions{display:flex;gap:6px}
   .controls{display:flex;gap:8px;margin:14px 0;align-items:center}
   input,select,textarea{padding:8px;border-radius:6px;border:1px solid #d6d9dd;background:#fff}
   .form{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
@@ -22,6 +24,8 @@
   .actions{display:flex;gap:8px}
   .primary{background:#2b7cff;color:#fff;border:none;padding:10px 12px;border-radius:6px;cursor:pointer}
   .ghost{background:#fff;color:#111;border:1px solid #ccc;padding:10px 12px;border-radius:6px;cursor:pointer}
+  .secondary{background:#e6e7ea;color:#111;border:1px solid #ccc;padding:10px 12px;border-radius:6px;cursor:pointer}
+  .deleteBtn{background:#ffecec;color:#b00000;border:1px solid #f0b4b4;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:.8rem}
   @media (max-width:700px){.form{grid-template-columns:1fr}.day{min-height:70px}}
 </style>
 </head>
@@ -38,7 +42,7 @@
       Anno:
       <select id="yearSelect"></select>
     </label>
-    <div style="margin-left:auto" id="legend"><strong>Legenda:</strong> eventi visibili cliccando "Aggiungi"</div>
+    <div style="margin-left:auto" id="legend"><strong>Legenda:</strong> usa "Aggiungi" sulla giornata per precompilare il form</div>
   </div>
 
   <div class="calendar" id="calendar"></div>
@@ -66,8 +70,8 @@
       <textarea id="description" rows="2"></textarea>
     </label>
     <div class="actions form-row">
-      <button class="primary" id="addLocal">Aggiungi al calendario locale</button>
-      <button class="ghost" id="openGoogle">Apri in Google Calendar</button>
+      <button class="primary" id="addGoogle">Aggiungi a calendario Google</button>
+      <button class="secondary" id="addLocal">Aggiungi solo al calendario locale</button>
     </div>
   </form>
 </div>
@@ -83,13 +87,12 @@
   const endEl = document.getElementById('endTime');
   const descEl = document.getElementById('description');
   const addLocalBtn = document.getElementById('addLocal');
-  const openGoogleBtn = document.getElementById('openGoogle');
+  const addGoogleBtn = document.getElementById('addGoogle');
 
   const today = new Date();
   const defaultYear = today.getFullYear();
   const defaultMonth = today.getMonth();
 
-  // popola selettori
   for(let m=0;m<12;m++){
     const opt = document.createElement('option');
     opt.value = m;
@@ -109,7 +112,6 @@
     calendarEl.innerHTML = '';
     const first = new Date(year, month, 1);
     const startDay = first.getDay(); // 0=Sun
-    // header weekday names
     const weekNames = ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'];
     for(let i=0;i<7;i++){
       const header = document.createElement('div');
@@ -119,14 +121,12 @@
       calendarEl.appendChild(header);
     }
     const daysInMonth = new Date(year, month+1, 0).getDate();
-    // pad with empty days before 1st (if week starts Sun)
     const pad = startDay;
     for(let i=0;i<pad;i++){
       const empty = document.createElement('div');
       empty.className = 'day';
       calendarEl.appendChild(empty);
     }
-    // create day cells
     for(let d=1; d<=daysInMonth; d++){
       const cell = document.createElement('div');
       cell.className = 'day';
@@ -139,7 +139,6 @@
       calendarEl.appendChild(cell);
 
       header.querySelector('button').addEventListener('click', ()=>{
-        // prefill form with clicked date
         const mm = String(month+1).padStart(2,'0');
         const dd = String(d).padStart(2,'0');
         dateEl.value = `${year}-${mm}-${dd}`;
@@ -148,86 +147,118 @@
         titleEl.focus();
       });
     }
+    renderEvents();
   }
 
   function isoLocalDateTime(dateStr, timeStr){
-    // combine local date + time into a JS Date then to ISO with timezone offset stripped for Google link
     const [y,m,d] = dateStr.split('-').map(Number);
     const [hh,mm] = timeStr.split(':').map(Number);
     const dt = new Date(y,m-1,d,hh,mm,0);
-    // Google uses UTC or "YYYYMMDDTHHMMSSZ" for UTC; we'll convert to UTC string (Z)
     return dt.toISOString().replace(/[-:]/g,'').split('.')[0]+'Z';
   }
 
-  // Simple in-memory events map: key = YYYY-MM-DD -> array of events
-  const events = {};
+  // events stored with unique IDs for deletion
+  const events = {}; // key: YYYY-MM-DD -> array of {id,title,...}
+  let idCounter = 1;
 
   function renderEvents(){
-    // clear all event lists
     document.querySelectorAll('.events').forEach(el=>el.innerHTML='');
+    const selYear = Number(yearSelect.value);
+    const selMonth = Number(monthSelect.value);
+    const mm = String(selMonth+1).padStart(2,'0');
+
     for(const key in events){
+      const arr = events[key];
+      // find matching day cell
+      const dayNum = key.split('-')[2];
       const cellButton = [...calendarEl.querySelectorAll('button[data-day]')].find(b=>{
         const parent = b.closest('.day');
         const header = parent.querySelector('header span');
         if(!header) return false;
-        const day = header.textContent;
-        // compute cell date visible
-        const selYear = Number(yearSelect.value);
-        const selMonth = Number(monthSelect.value);
-        const mm = String(selMonth+1).padStart(2,'0');
-        const dd = String(day).padStart(2,'0');
-        const cellKey = `${selYear}-${mm}-${dd}`;
-        return cellKey === key;
+        return header.textContent === String(Number(dayNum));
       });
       if(!cellButton) continue;
       const eventsWrap = cellButton.closest('.day').querySelector('.events');
-      events[key].forEach((ev, i)=>{
+      arr.forEach(ev=>{
         const evEl = document.createElement('div');
         evEl.className='event';
-        evEl.innerHTML = `<strong>${ev.title}</strong><div style="font-size:.8rem">${ev.start} - ${ev.end}</div>`;
+        const info = document.createElement('div');
+        info.className='ev-info';
+        info.innerHTML = `<strong>${escapeHtml(ev.title)}</strong><div style="font-size:.8rem">${ev.start} - ${ev.end}</div><div style="font-size:.75rem;color:#333;margin-top:4px">${escapeHtml(ev.description)}</div>`;
+        const actions = document.createElement('div');
+        actions.className='ev-actions';
+        const del = document.createElement('button');
+        del.className='deleteBtn';
+        del.textContent='Elimina';
+        del.addEventListener('click', ()=> {
+          deleteEventById(key, ev.id);
+        });
+        actions.appendChild(del);
+        evEl.appendChild(info);
+        evEl.appendChild(actions);
         eventsWrap.appendChild(evEl);
       });
     }
   }
 
-  // handlers
+  function deleteEventById(key, id){
+    if(!events[key]) return;
+    events[key] = events[key].filter(e=>e.id!==id);
+    if(events[key].length===0) delete events[key];
+    renderEvents();
+  }
+
+  function escapeHtml(s){
+    if(!s) return '';
+    return s.replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; });
+  }
+
   addLocalBtn.addEventListener('click', ()=>{
     if(!dateEl.value || !startEl.value || !endEl.value || !titleEl.value) return alert('Compila titolo, data e orari');
     const key = dateEl.value;
     if(!events[key]) events[key]=[];
     events[key].push({
+      id: idCounter++,
       title: titleEl.value,
       description: descEl.value||'',
       start: startEl.value,
       end: endEl.value
     });
     renderEvents();
-    // reset form lightly
     titleEl.value=''; descEl.value='';
   });
 
-  openGoogleBtn.addEventListener('click', ()=>{
+  addGoogleBtn.addEventListener('click', ()=>{
     if(!dateEl.value || !startEl.value || !endEl.value || !titleEl.value) return alert('Compila titolo, data e orari');
-    // Format for Google Calendar event creation link:
-    // https://calendar.google.com/calendar/render?action=TEMPLATE&text=TITLE&details=DESC&dates=START/END&ctz=Europe/Rome
-    // Use UTC timestamps in YYYYMMDDTHHMMSSZ
+    // First add to local
+    const key = dateEl.value;
+    if(!events[key]) events[key]=[];
+    events[key].push({
+      id: idCounter++,
+      title: titleEl.value,
+      description: descEl.value||'',
+      start: startEl.value,
+      end: endEl.value
+    });
+    renderEvents();
+
+    // Then open Google Calendar create URL with description (details) properly encoded
     const startISO = isoLocalDateTime(dateEl.value, startEl.value);
     const endISO = isoLocalDateTime(dateEl.value, endEl.value);
     const text = encodeURIComponent(titleEl.value);
-    const details = encodeURIComponent(descEl.value||'');
-    // Optionally set timezone parameter (browser local timezone guessed)
+    // include description in details param (encode newlines)
+    const details = encodeURIComponent(descEl.value || '');
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     const tzParam = tz ? `&ctz=${encodeURIComponent(tz)}` : '';
     const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&details=${details}&dates=${startISO}/${endISO}${tzParam}`;
-    // open in new tab
     window.open(url, '_blank');
+
+    titleEl.value=''; descEl.value='';
   });
 
-  // rebuild calendar on month/year change
   monthSelect.addEventListener('change', ()=> buildCalendar(Number(yearSelect.value), Number(monthSelect.value)));
   yearSelect.addEventListener('change', ()=> buildCalendar(Number(yearSelect.value), Number(monthSelect.value)));
 
-  // initial build
   buildCalendar(defaultYear, defaultMonth);
 
 })();
